@@ -45,6 +45,45 @@ describe ':until_executed strategy', type: :integration do
     end
   end
 
+  describe 'performing with retry' do
+    subject(:process) { perform_enqueued_jobs }
+
+    let(:job_class) do
+      stub_active_job_class do
+        unique :until_executed
+        retry_on ZeroDivisionError, attempts: 2, wait: 0, jitter: 0
+
+        def perform(number1, number2)
+          number1 / number2
+        end
+      end
+    end
+
+    before { job_class.perform_later(*arguments) }
+
+    context 'when performing failed first then succeed' do
+      let(:arguments) { [1, 1] }
+      let(:call_count) { { value: 0 } }
+
+      before do
+        allow_any_instance_of(job_class).to receive(:perform) do |_, number1, number2|
+          call_count[:value] += 1
+          raise ZeroDivisionError if call_count[:value] == 1
+
+          number1 / number2
+        end
+      end
+
+      it 'releases the lock after successful retry' do
+        expect { process }.to unlock(job_class).by_args(*arguments)
+      end
+
+      it 'logs the unlock event after successful retry' do
+        expect { process }.to log(/Unlocked/)
+      end
+    end
+  end
+
   describe 'lock key' do
     let(:job) { job_class.new(2, 1) }
 

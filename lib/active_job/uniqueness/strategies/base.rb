@@ -58,6 +58,7 @@ module ActiveJob
         module LockingOnEnqueue
           def before_enqueue
             return if lock(resource: lock_key, ttl: lock_ttl)
+            return if job.executions.positive?
 
             handle_conflict(resource: lock_key, on_conflict: on_conflict)
             abort_job
